@@ -398,16 +398,30 @@ describe("sliding-window attention", () => {
 // ---------------------------------------------------------------------------
 
 describe("decode-time preemption failure path", () => {
-  it("does not leak blocks when one request alone outgrows the cache", () => {
-    // Tiny cache (2 blocks), a single request that decodes past it. When alloc
-    // fails after exhausting victims, the freed blocks must not stay orphaned —
-    // total used must never exceed the cache, and must reach 0 once finished.
+  it("force-finishes a request that alone outgrows the cache (no infinite loop)", () => {
+    // 2 blocks × 4 tokens = 8 slots. Prompt "hi" = 1 token → can decode up to
+    // 7 more tokens before needing a 3rd block. With maxDecode=20 it must not
+    // loop forever — it should finish early with a rejectionReason.
     const config = makeConfig({ blockSize: 4, kvCacheBlocks: 2, maxBatchSize: 1 });
     let state = init(config, 1);
-    state = reduce(state, { type: "ADD_REQUEST", prompt: "hi", maxDecode: 12 }, config);
+    state = reduce(state, { type: "ADD_REQUEST", prompt: "hi", maxDecode: 20 }, config);
     for (let t = 0; t < 40; t++) {
       state = reduce(state, { type: "STEP" }, config);
-      // Used blocks never exceed the cache capacity (no orphaned/leaked blocks).
+      if (state.requests[0].status === "finished") break;
+    }
+    const req = state.requests[0];
+    expect(req.status).toBe("finished");
+    expect(req.rejectionReason).toMatch(/Cache too small/);
+    // All blocks must be freed once finished.
+    expect(usage(state.blocks).used).toBe(0);
+  });
+
+  it("does not leak blocks when finishing early", () => {
+    const config = makeConfig({ blockSize: 4, kvCacheBlocks: 2, maxBatchSize: 1 });
+    let state = init(config, 1);
+    state = reduce(state, { type: "ADD_REQUEST", prompt: "hi", maxDecode: 20 }, config);
+    for (let t = 0; t < 40; t++) {
+      state = reduce(state, { type: "STEP" }, config);
       expect(usage(state.blocks).used).toBeLessThanOrEqual(2);
       if (state.requests[0].status === "finished") break;
     }

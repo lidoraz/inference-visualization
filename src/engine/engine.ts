@@ -331,13 +331,20 @@ export function tick(state: EngineState, config: Config): EngineState {
     }
 
     if (!allocResult.ok) {
-      // Still can't fit even after evicting all other running requests (this one
-      // request alone exceeds the whole cache). Skip the token this tick; the
-      // request stays running and will retry next tick. Commit workingBlocks so
-      // the victims we freed above don't leak — without this their physical
-      // blocks stay marked to a now-swapped request and are never reclaimed.
-      currentBlocks = workingBlocks;
-      updatedRequests.push(decoding);
+      // This request alone cannot grow to the next token — the cache is
+      // permanently full for it. Finish it at the current decoded count and
+      // record why, rather than looping forever in a freed-blocks state.
+      // Commit workingBlocks so any victims freed above don't stay orphaned.
+      currentBlocks = free(workingBlocks, decoding.id);
+      const blocksNeededForNext = Math.ceil(
+        (decoding.promptTokens.length + decoding.decodedTokens.length + 1) / config.blockSize
+      );
+      updatedRequests.push({
+        ...decoding,
+        status: "finished" as const,
+        blockTable: [],
+        rejectionReason: `Cache too small to continue: next token needs ${blocksNeededForNext} blocks but only ${config.kvCacheBlocks} exist. Generated ${decoding.decodedTokens.length} of ${decoding.maxDecode} tokens.`,
+      });
       continue;
     }
 

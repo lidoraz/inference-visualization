@@ -655,9 +655,8 @@ export default function App() {
         <section style={vizAreaStyle} aria-label={`Stage ${currentStage} visualization`}>
           {rejected.length > 0 && (
             <div role="alert" style={rejectionBannerStyle}>
-              <strong>⚠ {rejected.length} request{rejected.length !== 1 ? "s" : ""} rejected.</strong>{" "}
-              {rejected[0].rejectionReason} Increase the KV Cache Blocks (or Block Size) so the
-              prompt fits, then add it again.
+              <strong>⚠ {rejected.length} request{rejected.length !== 1 ? "s" : ""} stopped early.</strong>{" "}
+              {rejected[0].rejectionReason}
             </div>
           )}
           {stageContent}

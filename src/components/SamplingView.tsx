@@ -10,7 +10,7 @@
 import { useState } from "react";
 import { Term } from "./Term";
 import { CANDIDATES, computeDistribution } from "../content/sampling";
-import { color, space, radius, font } from "../theme";
+import { color, space, radius, font, statusTint } from "../theme";
 
 // ─── styles ──────────────────────────────────────────────────────────────────
 
@@ -71,12 +71,6 @@ export function SamplingView() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: space.lg }}>
-      <p style={{ margin: 0, fontSize: font.size.base, color: color.textMuted, lineHeight: 1.6 }}>
-        Each <Term tokenKey="decode">decode</Term> step produces a probability over the whole
-        vocabulary; a sampling strategy picks the next token. Drag the knobs to reshape this
-        illustrative distribution.
-      </p>
-
       {/* Sliders */}
       <div style={{ display: "flex", flexDirection: "column", gap: space.md }}>
         <label style={sliderRowStyle}>
@@ -131,6 +125,137 @@ export function SamplingView() {
         </label>
       </div>
 
+      {/* Top-K vs Top-P comparison grid */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: space.md }}>
+        {/* Top-K card */}
+        <div
+          style={{
+            background: color.panelBgInset,
+            border: `1px solid ${color.prefill}44`,
+            borderRadius: radius.md,
+            padding: space.md,
+            display: "flex",
+            flexDirection: "column",
+            gap: space.xs,
+          }}
+        >
+          <span
+            style={{
+              fontSize: font.size.sm,
+              fontWeight: font.weight.bold,
+              textTransform: "uppercase",
+              letterSpacing: "0.07em",
+              color: color.prefill,
+              fontFamily: font.sans,
+            }}
+          >
+            Top-K
+          </span>
+          <span
+            style={{
+              display: "inline-block",
+              padding: `2px 8px`,
+              borderRadius: radius.pill,
+              fontSize: font.size.xs,
+              fontWeight: font.weight.semibold,
+              fontFamily: font.sans,
+              background: `${color.prefill}22`,
+              color: color.prefill,
+              border: `1px solid ${color.prefill}44`,
+              alignSelf: "flex-start",
+            }}
+          >
+            Fixed pool
+          </span>
+          <span style={{ fontFamily: font.mono, fontSize: font.size.sm, color: color.textPrimary }}>
+            &le; {topK} tokens, fixed count
+          </span>
+          <span style={{ fontSize: font.size.xs, color: color.textFaint }}>
+            Ignores model confidence
+          </span>
+          <span
+            style={{
+              display: "inline-block",
+              padding: `2px 8px`,
+              borderRadius: radius.pill,
+              fontSize: font.size.xs,
+              fontWeight: font.weight.semibold,
+              fontFamily: font.sans,
+              background: `${color.prefill}22`,
+              color: color.prefill,
+              border: `1px solid ${color.prefill}44`,
+              alignSelf: "flex-start",
+            }}
+          >
+            coding · factual
+          </span>
+        </div>
+
+        {/* Top-P card */}
+        <div
+          style={{
+            background: color.panelBgInset,
+            border: `1px solid ${color.decode}44`,
+            borderRadius: radius.md,
+            padding: space.md,
+            display: "flex",
+            flexDirection: "column",
+            gap: space.xs,
+          }}
+        >
+          <span
+            style={{
+              fontSize: font.size.sm,
+              fontWeight: font.weight.bold,
+              textTransform: "uppercase",
+              letterSpacing: "0.07em",
+              color: color.decode,
+              fontFamily: font.sans,
+            }}
+          >
+            Top-P
+          </span>
+          <span
+            style={{
+              display: "inline-block",
+              padding: `2px 8px`,
+              borderRadius: radius.pill,
+              fontSize: font.size.xs,
+              fontWeight: font.weight.semibold,
+              fontFamily: font.sans,
+              background: `${color.decode}22`,
+              color: color.decode,
+              border: `1px solid ${color.decode}44`,
+              alignSelf: "flex-start",
+            }}
+          >
+            Nucleus sampling
+          </span>
+          <span style={{ fontFamily: font.mono, fontSize: font.size.sm, color: color.textPrimary }}>
+            &le; {(topP * 100).toFixed(0)}% cumulative mass, dynamic
+          </span>
+          <span style={{ fontSize: font.size.xs, color: color.textFaint }}>
+            Contracts when model is certain
+          </span>
+          <span
+            style={{
+              display: "inline-block",
+              padding: `2px 8px`,
+              borderRadius: radius.pill,
+              fontSize: font.size.xs,
+              fontWeight: font.weight.semibold,
+              fontFamily: font.sans,
+              background: `${color.decode}22`,
+              color: color.decode,
+              border: `1px solid ${color.decode}44`,
+              alignSelf: "flex-start",
+            }}
+          >
+            creative · chat
+          </span>
+        </div>
+      </div>
+
       {/* Distribution bars */}
       <div>
         {dist.map((d) => (
@@ -162,20 +287,18 @@ export function SamplingView() {
         ))}
       </div>
 
-      <p style={{ margin: 0, fontSize: font.size.sm, color: color.textFaint, lineHeight: 1.5 }}>
+      {/* Status chips */}
+      <div style={{ display: "flex", gap: space.sm, flexWrap: "wrap", alignItems: "center" }}>
         {isGreedy ? (
-          <>
-            Temperature 0 = <Term tokenKey="greedy">greedy decoding</Term>: all mass on the single
-            most-likely token, fully deterministic.
-          </>
+          <span style={statusTint(color.accent)}>greedy — deterministic</span>
         ) : (
           <>
-            {keptCount} of {CANDIDATES.length} tokens kept (struck-through ones are excluded by
-            top-k / top-p). Lower temperature sharpens toward the top token; higher flattens for
-            more variety.
+            <span style={statusTint(color.prefill)}>Top-K: {topK} tokens max</span>
+            <span style={statusTint(color.decode)}>Top-P: {(topP * 100).toFixed(0)}% mass</span>
+            <span style={statusTint(color.accent)}>{keptCount} / {CANDIDATES.length} in pool</span>
           </>
         )}
-      </p>
+      </div>
     </div>
   );
 }

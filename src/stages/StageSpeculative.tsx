@@ -1,21 +1,31 @@
 /**
- * Speculative Decoding — illustrative stage.
+ * Multi-Token Prediction (MTP) — interactive visualizer.
  *
- * A small draft model proposes k tokens; the target verifies all k in one pass
- * and accepts the longest correct prefix. Two sliders (draft length k, draft
- * acceptance rate) drive a visual of the draft tokens (accepted / first reject /
- * discarded) and the resulting speedup (tokens per target pass = 1 + accepted).
+ * Demonstrates how DeepSeek-style MTP works: a single MTP head (or chain of
+ * heads) branches off the SAME final hidden state `h` that feeds the main LM
+ * head, speculatively predicting k extra tokens per forward pass. Because the
+ * demo target phrase is fixed, all predictions are always correct, letting the
+ * user focus on the structural insight rather than stochastic acceptance.
  *
- * Config/UI-driven diagram — no engine change. Deterministic: how many tokens
- * are accepted is derived from k and the acceptance rate, not random.
+ * Modes:
+ *   standard — 1 token/pass (no MTP)
+ *   mtp1     — main head + 1 MTP head = up to 2 tokens/pass
+ *   mtp3     — main head + 3 chained MTP heads = up to 4 tokens/pass
  */
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import type { StageProps } from "./types";
 import { Term } from "../components/Term";
-import { color, space, radius, font, sectionLabel } from "../theme";
+import { color, space, radius, font, sectionLabel, panel } from "../theme";
+import { type Mode, nextPass, initialState, isDone as mtpIsDone } from "./mtp";
 
-// ─── Styles ──────────────────────────────────────────────────────────────────
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const TARGET_PHRASE = [
+  "The", "capital", "of", "France", "is", "Paris", ",", "which", "is", "beautiful", ".",
+];
+
+// ─── Static styles ────────────────────────────────────────────────────────────
 
 const outerStyle: React.CSSProperties = {
   padding: `${space.xl}px ${space.md}px`,
@@ -32,53 +42,6 @@ const sectionHeadingStyle: React.CSSProperties = {
   margin: `0 0 ${space.md}px`,
 };
 
-const sliderRowStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: space.md,
-  marginBottom: space.md,
-};
-
-const rowStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: space.sm,
-  flexWrap: "wrap",
-  marginBottom: space.md,
-};
-
-const laneLabelStyle: React.CSSProperties = {
-  minWidth: 96,
-  fontSize: font.size.md,
-  color: color.textMuted,
-};
-
-type CellKind = "target" | "accepted" | "reject" | "discarded";
-
-function cellStyle(kind: CellKind): React.CSSProperties {
-  const map: Record<CellKind, { bg: string; border: string; fg: string }> = {
-    target: { bg: `${color.prefill}33`, border: color.prefill, fg: color.prefill },
-    accepted: { bg: `${color.decode}33`, border: color.decode, fg: color.decode },
-    reject: { bg: `${color.danger}33`, border: color.danger, fg: color.danger },
-    discarded: { bg: color.panelBgInset, border: color.border, fg: color.textFaint },
-  };
-  const c = map[kind];
-  return {
-    minWidth: 30,
-    height: 30,
-    padding: `0 ${space.sm}px`,
-    borderRadius: radius.sm,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontSize: font.size.md,
-    fontFamily: font.mono,
-    background: c.bg,
-    border: `1px solid ${c.border}`,
-    color: c.fg,
-  };
-}
-
 const statChipStyle: React.CSSProperties = {
   flex: "1 1 140px",
   minWidth: 130,
@@ -91,13 +54,6 @@ const statChipStyle: React.CSSProperties = {
   gap: 2,
 };
 
-const statValueStyle: React.CSSProperties = {
-  fontSize: font.size.xxl,
-  fontWeight: font.weight.bold,
-  fontFamily: font.mono,
-  color: color.accent,
-};
-
 const statLabelStyle: React.CSSProperties = {
   fontSize: font.size.xs,
   textTransform: "uppercase",
@@ -105,127 +61,644 @@ const statLabelStyle: React.CSSProperties = {
   color: color.textFaint,
 };
 
-// ─── Component ─────────────────────────────────────────────────────────────────
+const modeBtnBase: React.CSSProperties = {
+  padding: `${space.sm}px ${space.lg}px`,
+  borderRadius: radius.md,
+  border: `1px solid ${color.border}`,
+  background: color.panelBgInset,
+  color: color.textMuted,
+  fontFamily: font.sans,
+  fontSize: font.size.base,
+  cursor: "pointer",
+  transition: "all 0.2s ease",
+};
 
-export function StageSpeculative(_props: StageProps) {
-  const [k, setK] = useState(4); // draft length
-  const [acceptPct, setAcceptPct] = useState(70); // per-token acceptance rate %
+const modeBtnActive: React.CSSProperties = {
+  ...modeBtnBase,
+  background: `${color.accent}22`,
+  border: `1px solid ${color.accent}`,
+  color: color.accent,
+  fontWeight: font.weight.semibold,
+};
 
-  // Deterministic: accepted count = floor(k * rate). The target then corrects
-  // the first non-accepted token, so a verify pass yields accepted + 1 tokens
-  // (capped at k + 1 when the whole draft is accepted).
-  const accepted = Math.floor((k * acceptPct) / 100);
-  const allAccepted = accepted >= k;
-  const tokensPerPass = Math.min(accepted + 1, k + 1);
-  const speedup = tokensPerPass; // vanilla decode = 1 token per target pass
+const actionBtnStyle: React.CSSProperties = {
+  padding: `${space.md}px ${space.xl}px`,
+  borderRadius: radius.md,
+  border: `1px solid ${color.decode}`,
+  background: `${color.decode}22`,
+  color: color.decode,
+  fontFamily: font.mono,
+  fontSize: font.size.base,
+  fontWeight: font.weight.semibold,
+  cursor: "pointer",
+  transition: "all 0.2s ease",
+};
+
+const actionBtnDisabledStyle: React.CSSProperties = {
+  ...actionBtnStyle,
+  opacity: 0.4,
+  cursor: "not-allowed",
+  border: `1px solid ${color.border}`,
+  background: color.panelBgInset,
+  color: color.textFaint,
+};
+
+const resetBtnStyle: React.CSSProperties = {
+  padding: `${space.md}px ${space.xl}px`,
+  borderRadius: radius.md,
+  border: `1px solid ${color.border}`,
+  background: color.panelBgInset,
+  color: color.textMuted,
+  fontFamily: font.sans,
+  fontSize: font.size.base,
+  cursor: "pointer",
+  transition: "all 0.2s ease",
+};
+
+const archPanelStyle: React.CSSProperties = {
+  ...panel,
+  background: color.panelBgInset,
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  gap: space.md,
+  padding: `${space.xl}px`,
+  transition: "all 0.3s ease",
+};
+
+const arrowStyle: React.CSSProperties = {
+  fontFamily: font.mono,
+  fontSize: font.size.xl,
+  color: color.textFaint,
+  lineHeight: 1,
+};
+
+const trunkBoxBase: React.CSSProperties = {
+  width: 200,
+  padding: `${space.lg}px ${space.xl}px`,
+  borderRadius: radius.lg,
+  border: `1px solid ${color.border}`,
+  background: color.panelBg,
+  textAlign: "center",
+  fontFamily: font.mono,
+  fontSize: font.size.base,
+  color: color.textPrimary,
+  transition: "all 0.3s ease",
+};
+
+function trunkBoxAnimating(): React.CSSProperties {
+  return {
+    ...trunkBoxBase,
+    background: `${color.prefill}22`,
+    border: `1px solid ${color.prefill}`,
+    boxShadow: `0 0 12px ${color.prefill}55`,
+    color: color.prefill,
+  };
+}
+
+function headBoxStyle(accent: string, animating: boolean): React.CSSProperties {
+  return {
+    padding: `${space.md}px ${space.lg}px`,
+    borderRadius: radius.md,
+    border: `1px solid ${animating ? accent : color.border}`,
+    background: animating ? `${accent}22` : color.panelBg,
+    textAlign: "center",
+    fontFamily: font.mono,
+    fontSize: font.size.sm,
+    color: animating ? accent : color.textMuted,
+    transition: "all 0.3s ease",
+    minWidth: 100,
+    boxShadow: animating ? `0 0 8px ${accent}44` : "none",
+  };
+}
+
+function confirmedTokenChip(isNew: boolean): React.CSSProperties {
+  return {
+    padding: `${space.xs}px ${space.md}px`,
+    borderRadius: radius.sm,
+    border: `1px solid ${color.decode}`,
+    background: isNew ? `${color.decode}44` : `${color.decode}22`,
+    color: color.decode,
+    fontFamily: font.mono,
+    fontSize: font.size.md,
+    fontWeight: isNew ? font.weight.semibold : font.weight.normal,
+    transition: "all 0.3s ease",
+    whiteSpace: "nowrap" as const,
+  };
+}
+
+const stagingTokenChip: React.CSSProperties = {
+  padding: `${space.xs}px ${space.md}px`,
+  borderRadius: radius.sm,
+  border: `1px dashed ${color.waiting}`,
+  background: "transparent",
+  color: color.waiting,
+  fontFamily: font.mono,
+  fontSize: font.size.md,
+  whiteSpace: "nowrap" as const,
+  transition: "all 0.3s ease",
+};
+
+const separatorDotStyle: React.CSSProperties = {
+  color: color.textFaint,
+  fontFamily: font.mono,
+  fontSize: font.size.xl,
+  lineHeight: 1,
+  padding: `0 ${space.xs}px`,
+  alignSelf: "center",
+};
+
+const legendChipBase: React.CSSProperties = {
+  display: "inline-block",
+  padding: `2px ${space.md}px`,
+  borderRadius: radius.sm,
+  fontFamily: font.mono,
+  fontSize: font.size.xs,
+};
+
+// ─── Architecture diagram sub-components ─────────────────────────────────────
+
+function HiddenStateLabel() {
+  return (
+    <span
+      style={{
+        fontFamily: font.mono,
+        fontSize: font.size.xs,
+        color: color.textFaint,
+        letterSpacing: "0.04em",
+      }}
+    >
+      h<sub>t</sub> (hidden state)
+    </span>
+  );
+}
+
+function TokenChipArch({
+  label,
+  accent,
+  dashed,
+}: {
+  label: string;
+  accent: string;
+  dashed?: boolean;
+}) {
+  return (
+    <span
+      style={{
+        padding: `${space.xs}px ${space.md}px`,
+        borderRadius: radius.sm,
+        border: dashed ? `1px dashed ${accent}` : `1px solid ${accent}`,
+        background: dashed ? "transparent" : `${accent}22`,
+        color: accent,
+        fontFamily: font.mono,
+        fontSize: font.size.xs,
+        whiteSpace: "nowrap" as const,
+      }}
+    >
+      {label}
+    </span>
+  );
+}
+
+function BranchColumn({
+  headLabel,
+  tokenLabel,
+  accent,
+  dashed,
+  isAnimating,
+}: {
+  headLabel: string;
+  tokenLabel: string;
+  accent: string;
+  dashed?: boolean;
+  isAnimating: boolean;
+}) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        gap: space.sm,
+      }}
+    >
+      <div style={headBoxStyle(accent, isAnimating)}>{headLabel}</div>
+      <span style={arrowStyle}>↓</span>
+      <TokenChipArch label={tokenLabel} accent={accent} dashed={dashed} />
+    </div>
+  );
+}
+
+function MtpChainColumn({ isAnimating }: { isAnimating: boolean }) {
+  const heads = [
+    { label: "MTP Head 1", token: "T_n+1 ○" },
+    { label: "MTP Head 2", token: "T_n+2 ○" },
+    { label: "MTP Head 3", token: "T_n+3 ○" },
+  ];
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        gap: space.xs,
+      }}
+    >
+      {heads.map((h, i) => (
+        <div
+          key={h.label}
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: space.xs,
+          }}
+        >
+          <div style={headBoxStyle(color.waiting, isAnimating)}>{h.label}</div>
+          <span style={arrowStyle}>↓</span>
+          <TokenChipArch label={h.token} accent={color.waiting} dashed />
+          {i < 2 && (
+            <span
+              style={{
+                fontSize: font.size.xs,
+                color: color.textFaint,
+                fontFamily: font.sans,
+                fontStyle: "italic",
+                marginTop: space.xs,
+              }}
+            >
+              ↓ feeds into
+            </span>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ArchDiagram({
+  mode,
+  isAnimating,
+}: {
+  mode: Mode;
+  isAnimating: boolean;
+}) {
+  const captionMap: Record<Mode, string> = {
+    standard: "Main model emits 1 token per forward pass.",
+    mtp1: "MTP head reuses the same hidden state h to speculatively predict 1 extra token.",
+    mtp3: "3 MTP heads chain off h, each feeding into the next — 3 extra speculative tokens per pass.",
+  };
 
   return (
-    <div style={outerStyle} aria-label="Speculative decoding visualization">
-      {/* Controls */}
-      <div>
-        <div style={sliderRowStyle}>
-          <span style={{ minWidth: 150 }}>
-            <Term tokenKey="draftModel">Draft</Term> length k = {k}
-          </span>
-          <input
-            type="range"
-            min={1}
-            max={8}
-            step={1}
-            value={k}
-            onChange={(e) => setK(Number(e.target.value))}
-            aria-label="Draft length"
-            style={{ flex: 1 }}
+    <div
+      style={{
+        ...archPanelStyle,
+        boxShadow: isAnimating ? `0 0 16px ${color.prefill}33` : "none",
+      }}
+    >
+      <HiddenStateLabel />
+      <span style={arrowStyle}>↓</span>
+      <div style={isAnimating ? trunkBoxAnimating() : trunkBoxBase}>
+        Transformer Trunk
+      </div>
+      <span style={arrowStyle}>↓</span>
+
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "row",
+          alignItems: "flex-start",
+          justifyContent: "center",
+          gap: space.xxl,
+        }}
+      >
+        <BranchColumn
+          headLabel="Main Head"
+          tokenLabel="T_n ✓ confirmed"
+          accent={color.decode}
+          isAnimating={isAnimating}
+        />
+
+        {mode === "mtp1" && (
+          <BranchColumn
+            headLabel="MTP Head"
+            tokenLabel="T_n+1 ○ staging"
+            accent={color.waiting}
+            dashed
+            isAnimating={isAnimating}
           />
-        </div>
-        <div style={sliderRowStyle}>
-          <span style={{ minWidth: 150 }}>
-            <Term tokenKey="acceptanceRate">Acceptance</Term> = {acceptPct}%
-          </span>
-          <input
-            type="range"
-            min={0}
-            max={100}
-            step={5}
-            value={acceptPct}
-            onChange={(e) => setAcceptPct(Number(e.target.value))}
-            aria-label="Acceptance rate"
-            style={{ flex: 1 }}
-          />
-        </div>
+        )}
+
+        {mode === "mtp3" && <MtpChainColumn isAnimating={isAnimating} />}
       </div>
 
-      {/* Draft → verify → accept flow */}
-      <div>
-        <h3 style={sectionHeadingStyle}>One Target Pass</h3>
+      <span
+        style={{
+          fontSize: font.size.xs,
+          color: color.textFaint,
+          fontFamily: font.sans,
+          textAlign: "center",
+          maxWidth: 380,
+          lineHeight: 1.5,
+        }}
+      >
+        {captionMap[mode]}
+      </span>
+    </div>
+  );
+}
 
-        <div style={rowStyle} aria-label="Draft proposal">
-          <span style={laneLabelStyle}>
-            <Term tokenKey="draftModel">Draft</Term> proposes
-          </span>
-          {Array.from({ length: k }, (_, i) => (
-            <span key={i} style={cellStyle("discarded")} title={`drafted token ${i + 1}`}>
-              d{i + 1}
-            </span>
-          ))}
-        </div>
+// ─── Component ────────────────────────────────────────────────────────────────
 
-        <div style={rowStyle} aria-label="Verification result">
-          <span style={laneLabelStyle}>
-            <Term tokenKey="verification">Target</Term> verifies
-          </span>
-          {Array.from({ length: k }, (_, i) => {
-            const kind: CellKind = i < accepted ? "accepted" : i === accepted ? "reject" : "discarded";
-            const label = i < accepted ? "✓" : i === accepted ? "✗" : "·";
-            const title =
-              i < accepted
-                ? "accepted (matched target)"
-                : i === accepted
-                ? "first mismatch — target corrects it"
-                : "discarded (after a mismatch)";
+export function StageSpeculative(_props: StageProps) {
+  const [mode, setMode] = useState<Mode>("standard");
+  const [simState, setSimState] = useState(initialState());
+  const [isAnimating, setIsAnimating] = useState(false);
+  const [newFromIdx, setNewFromIdx] = useState<number | null>(null);
+  const animTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const { confirmed, staging, passes } = simState;
+  const done = mtpIsDone(simState, TARGET_PHRASE);
+
+  function triggerAnimation(fromIdx: number) {
+    if (animTimerRef.current) clearTimeout(animTimerRef.current);
+    setIsAnimating(true);
+    setNewFromIdx(fromIdx);
+    animTimerRef.current = setTimeout(() => {
+      setIsAnimating(false);
+      setNewFromIdx(null);
+    }, 650);
+  }
+
+  function handleNextPass() {
+    if (done) return;
+    const prevConfirmedLen = simState.confirmed.length + simState.staging.length;
+    const next = nextPass(simState, mode, TARGET_PHRASE);
+    setSimState(next);
+    triggerAnimation(prevConfirmedLen);
+  }
+
+  function handleModeChange(next: Mode) {
+    if (animTimerRef.current) clearTimeout(animTimerRef.current);
+    setMode(next);
+    setSimState(initialState());
+    setIsAnimating(false);
+    setNewFromIdx(null);
+  }
+
+  function handleReset() {
+    if (animTimerRef.current) clearTimeout(animTimerRef.current);
+    setSimState(initialState());
+    setIsAnimating(false);
+    setNewFromIdx(null);
+  }
+
+  // Metrics
+  const tokensPerPass = passes > 0 ? (confirmed.length / passes).toFixed(2) : "—";
+
+  // Status line
+  let statusLine: string;
+  if (passes === 0) {
+    statusLine = "Press Next Forward Pass to begin.";
+  } else if (done) {
+    statusLine = `Complete! ${TARGET_PHRASE.length} tokens in ${passes} passes.`;
+  } else {
+    const newCount = newFromIdx !== null ? confirmed.length - newFromIdx : 0;
+    if (mode === "standard") {
+      statusLine = `Pass ${passes}: main head confirmed "${confirmed[confirmed.length - 1]}".`;
+    } else {
+      const stagingCount = staging.length;
+      statusLine =
+        `Pass ${passes}: ${newCount} token${newCount !== 1 ? "s" : ""} confirmed` +
+        (stagingCount > 0 ? `, ${stagingCount} staged speculatively.` : ".");
+    }
+  }
+
+  return (
+    <div style={outerStyle} aria-label="Multi-Token Prediction visualization">
+
+      {/* Zone A — Controls & Metrics */}
+      <div style={{ display: "flex", flexDirection: "column", gap: space.lg }}>
+
+        {/* Mode selector */}
+        <div
+          style={{ display: "flex", gap: space.md, flexWrap: "wrap" as const }}
+          role="group"
+          aria-label="Select MTP mode"
+        >
+          {(["standard", "mtp1", "mtp3"] as Mode[]).map((m) => {
+            const labels: Record<Mode, string> = {
+              standard: "Standard",
+              mtp1: "MTP-1",
+              mtp3: "MTP-3",
+            };
             return (
-              <span key={i} style={cellStyle(kind)} title={title}>
-                {label}
-              </span>
+              <button
+                key={m}
+                style={mode === m ? modeBtnActive : modeBtnBase}
+                onClick={() => handleModeChange(m)}
+                aria-pressed={mode === m}
+              >
+                {labels[m]}
+              </button>
             );
           })}
-          {/* The target always emits one correct token (the corrected/next one). */}
-          <span style={{ fontSize: font.size.md, color: color.textFaint }}>→</span>
-          <span style={cellStyle("target")} title="target's own correct token (always emitted)">
-            {allAccepted ? "+1" : "fix"}
-          </span>
         </div>
 
-        <p style={{ margin: 0, fontSize: font.size.base }}>
-          {accepted} of {k} draft tokens accepted{allAccepted ? " (all)" : ""}, plus 1 the target
-          emits itself ={" "}
-          <strong style={{ color: color.accent }}>{tokensPerPass} tokens</strong> from this one
-          pass.
-        </p>
+        {/* Action row */}
+        <div style={{ display: "flex", gap: space.md, alignItems: "center" }}>
+          <button
+            style={done ? actionBtnDisabledStyle : actionBtnStyle}
+            onClick={handleNextPass}
+            disabled={done}
+            aria-label="Advance one forward pass"
+          >
+            ▶ Next Forward Pass
+          </button>
+          <button style={resetBtnStyle} onClick={handleReset} aria-label="Reset simulation">
+            Reset
+          </button>
+        </div>
+
+        {/* Metrics row */}
+        <div style={{ display: "flex", gap: space.md, flexWrap: "wrap" as const }}>
+          <div style={statChipStyle}>
+            <span
+              style={{
+                fontSize: font.size.xxl,
+                fontWeight: font.weight.bold,
+                fontFamily: font.mono,
+                color: color.accent,
+              }}
+            >
+              {passes}
+            </span>
+            <span style={statLabelStyle}>Forward Passes</span>
+          </div>
+          <div style={statChipStyle}>
+            <span
+              style={{
+                fontSize: font.size.xxl,
+                fontWeight: font.weight.bold,
+                fontFamily: font.mono,
+                color: color.accent,
+              }}
+            >
+              {confirmed.length}
+            </span>
+            <span style={statLabelStyle}>Tokens Confirmed</span>
+          </div>
+          <div style={statChipStyle}>
+            <span
+              style={{
+                fontSize: font.size.xxl,
+                fontWeight: font.weight.bold,
+                fontFamily: font.mono,
+                color: color.decode,
+              }}
+            >
+              {tokensPerPass}
+              {passes > 0 ? "×" : ""}
+            </span>
+            <span style={statLabelStyle}>Tokens / Pass</span>
+          </div>
+          {mode !== "standard" && (
+            <div style={statChipStyle}>
+              <span
+                style={{
+                  fontSize: font.size.xxl,
+                  fontWeight: font.weight.bold,
+                  fontFamily: font.mono,
+                  color: color.waiting,
+                }}
+              >
+                {staging.length}
+              </span>
+              <span style={statLabelStyle}>Staging</span>
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* Speedup readout */}
+      {/* Zone B — Architecture Diagram */}
       <div>
-        <h3 style={sectionHeadingStyle}>Speedup vs Vanilla Decode</h3>
-        <div style={{ display: "flex", gap: space.md, flexWrap: "wrap" }}>
-          <div style={statChipStyle}>
-            <span style={statValueStyle}>1</span>
-            <span style={statLabelStyle}>Vanilla: tokens / pass</span>
-          </div>
-          <div style={statChipStyle}>
-            <span style={statValueStyle}>{tokensPerPass}</span>
-            <span style={statLabelStyle}>Speculative: tokens / pass</span>
-          </div>
-          <div style={statChipStyle}>
-            <span style={{ ...statValueStyle, color: color.decode }}>{speedup.toFixed(1)}×</span>
-            <span style={statLabelStyle}>Speedup (same target cost)</span>
+        <h3 style={sectionHeadingStyle}>
+          <Term tokenKey="mtp">Model Architecture</Term>
+        </h3>
+        <ArchDiagram mode={mode} isAnimating={isAnimating} />
+      </div>
+
+      {/* Zone C — Output Stream */}
+      <div>
+        <h3 style={sectionHeadingStyle}>Output Stream</h3>
+
+        {/* Token tape */}
+        <div
+          style={{
+            background: color.panelBgInset,
+            border: `1px solid ${color.border}`,
+            borderRadius: radius.lg,
+            padding: `${space.lg}px`,
+            overflowX: "auto",
+          }}
+          aria-label="Output token stream"
+          aria-live="polite"
+        >
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap" as const,
+              gap: space.sm,
+              alignItems: "center",
+              minHeight: 36,
+            }}
+          >
+            {confirmed.length === 0 && staging.length === 0 ? (
+              <span
+                style={{
+                  color: color.textFaint,
+                  fontFamily: font.mono,
+                  fontSize: font.size.base,
+                }}
+              >
+                No tokens yet — press Next Forward Pass to start.
+              </span>
+            ) : (
+              <>
+                {confirmed.map((text, idx) => {
+                  const isNew = newFromIdx !== null && isAnimating && idx >= newFromIdx;
+                  return (
+                    <span key={idx} style={confirmedTokenChip(isNew)} title={`Token ${idx + 1}`}>
+                      {text}
+                    </span>
+                  );
+                })}
+                {staging.length > 0 && (
+                  <>
+                    <span style={separatorDotStyle} aria-hidden="true">
+                      ·
+                    </span>
+                    {staging.map((st) => (
+                      <span
+                        key={st.id}
+                        style={stagingTokenChip}
+                        title="Speculatively staged — pending verification"
+                      >
+                        {st.text}
+                      </span>
+                    ))}
+                  </>
+                )}
+              </>
+            )}
           </div>
         </div>
-        <p style={{ margin: `${space.md}px 0 0`, fontSize: font.size.base }}>
-          A verify pass costs the same as decoding one token, so yielding {tokensPerPass} tokens is a{" "}
-          {speedup.toFixed(1)}× decode speedup — and the output is provably identical to plain
-          sampling. Push acceptance up (a better-aligned draft) or k up to see the gain grow; a low
-          acceptance rate wastes the draft's guesses.
+
+        {/* Legend */}
+        <div
+          style={{
+            display: "flex",
+            gap: space.md,
+            marginTop: space.md,
+            alignItems: "center",
+            flexWrap: "wrap" as const,
+          }}
+          aria-label="Token legend"
+        >
+          <span
+            style={{
+              ...legendChipBase,
+              border: `1px solid ${color.decode}`,
+              background: `${color.decode}22`,
+              color: color.decode,
+            }}
+          >
+            Confirmed
+          </span>
+          {mode !== "standard" && (
+            <span
+              style={{
+                ...legendChipBase,
+                border: `1px dashed ${color.waiting}`,
+                background: "transparent",
+                color: color.waiting,
+              }}
+            >
+              Staging
+            </span>
+          )}
+        </div>
+
+        {/* Status line */}
+        <p
+          style={{
+            margin: `${space.md}px 0 0`,
+            fontSize: font.size.sm,
+            color: color.textFaint,
+            fontFamily: font.sans,
+          }}
+        >
+          {statusLine}
         </p>
       </div>
     </div>

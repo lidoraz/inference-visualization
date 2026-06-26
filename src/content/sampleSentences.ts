@@ -15,6 +15,7 @@ export const sampleSentences: string[] = [
   "Large language models serve many users at once",
   "Describe the difference between prefill and decode phases",
   "Roses are red violets are blue inference is fast",
+  "The capital of France is Paris which is beautiful",
 ];
 
 /** Pick a random sample sentence (UI-only; non-deterministic by design). */

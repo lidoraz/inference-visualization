@@ -343,14 +343,12 @@ function ArchDiagram({
   passes,
   confirmed,
   staging,
-  targetPhrase,
 }: {
   mode: Mode;
   isAnimating: boolean;
   passes: number;
   confirmed: string[];
   staging: StagingToken[];
-  targetPhrase: string[];
 }) {
   // Only show the last confirmed token after at least one pass has run
   const lastConfirmedToken = passes > 0 ? (confirmed[confirmed.length - 1] ?? "…") : "…";
@@ -543,7 +541,7 @@ function LogPanel({ logLines, logEndRef }: { logLines: string[]; logEndRef: Reac
           padding: `${space.lg}px`,
           fontFamily: font.mono,
           fontSize: font.size.xs,
-          color: color.textSecondary,
+          color: color.textMuted,
           lineHeight: 1.7,
           maxHeight: 320,
           overflowY: "auto",
@@ -751,7 +749,7 @@ export function StageSpeculative(_props: StageProps) {
                 return (
                   <span style={{
                     fontFamily: font.mono, fontSize: font.size.xs,
-                    color: color.textSecondary,
+                    color: color.textMuted,
                     marginLeft: space.sm,
                   }}>
                     expected ≈ {expected.toFixed(2)}/pass
@@ -800,7 +798,7 @@ export function StageSpeculative(_props: StageProps) {
       <div>
         <h3 style={sectionHeadingStyle}><Term tokenKey="mtp">Decode Architecture</Term></h3>
         <ArchDiagram mode={mode} isAnimating={isAnimating} passes={passes}
-          confirmed={confirmed} staging={staging} targetPhrase={targetPhrase} />
+          confirmed={confirmed} staging={staging} />
       </div>
 
       {/* Zone C — Output Stream */}

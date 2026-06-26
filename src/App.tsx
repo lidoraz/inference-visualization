@@ -103,8 +103,8 @@ const STAGE_SEED_COUNT: Record<number, number> = {
 // Intensity (1..10) maps to a mean inter-arrival gap. Light = long gaps,
 // heavy = short gaps. Exponential sampling around the mean yields Poisson
 // arrivals (natural bursts/lulls). Decode lengths come from a normal dist.
-const LOAD_MEAN_GAP_MIN_MS = 400; // heaviest load: ~0.4s mean gap
-const LOAD_MEAN_GAP_MAX_MS = 4000; // lightest load: ~4s mean gap
+const LOAD_MEAN_GAP_MIN_MS = 500; // heaviest load: ~0.5s mean gap
+const LOAD_MEAN_GAP_MAX_MS = 5000; // lightest load: ~5s mean gap
 const LOAD_DECODE_MEAN = 20;
 const LOAD_DECODE_SD = 12;
 

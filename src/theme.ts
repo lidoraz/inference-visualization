@@ -132,7 +132,6 @@ export const notePanel: React.CSSProperties = {
   padding: `${space.md}px ${space.lg}px`,
   borderRadius: radius.lg,
   background: color.panelBg,
-  border: `1px solid ${color.border}`,
   fontSize: font.size.base,
   color: color.textMuted,
   lineHeight: 1.6,

@@ -265,8 +265,8 @@ export const glossary: Record<string, GlossaryEntry> = {
 
   dpAttention: {
     term: "DP Attention",
-    short: "Each rank runs attention on its own requests, holding distinct KV (no replication).",
-    long: "Data-parallel attention assigns whole requests to ranks: each rank holds the complete KV for a different subset of requests and runs the attention layer locally, with no cross-rank KV duplication. This specifically fixes the MLA case — DeepSeek-style multi-head latent attention compresses KV into one small per-token latent vector that can't be cleanly sharded across heads, so plain tensor parallelism ends up replicating it on every rank. DP attention was pioneered in SGLang for DeepSeek serving and is now also supported by vLLM (each DP engine keeps an independent KV cache). The MoE FFN is handled separately by expert parallelism.",
+    short: "Each rank handles different requests' KV entirely — no cross-rank KV splitting.",
+    long: "MLA's latent KV can't be sharded across tensor-parallel ranks, so plain TP replicates it on every rank. DP-attention fixes this by assigning whole requests to ranks — each rank owns the full KV for its subset of requests and runs attention locally.",
   },
 
   programmableFrontend: {
@@ -381,5 +381,65 @@ export const glossary: Record<string, GlossaryEntry> = {
     term: "MTP Module",
     short: "One extra transformer block that drafts the next token using h + emb(last token).",
     long: "The MTP (Multi-Token Prediction) module is a single transformer block — separate from the backbone's N layers — that takes two inputs: the backbone's final hidden state h, and the embedding of the token the backbone just predicted. These are concatenated, projected down to d_model by a learned matrix, and fed through the transformer block to produce a new hidden state h′. That h′ is then passed through the shared LM head to get draft logits. For k=3, this one module is called recursively 3 times, each time feeding the previous h′ and the embedding of the previous draft. The embedding table and LM head are shared with the backbone; only the transformer block and the projection matrix are unique to the MTP module.",
+  },
+
+  queryMatrix: {
+    term: "Query (Q)",
+    short: "Token's \"question\" projected into attention space.",
+    long: "Q = input × W_Q. Each row is what a token is looking for. Dot-producted against all keys to produce attention scores.",
+  },
+
+  keyMatrix: {
+    term: "Key (K)",
+    short: "Token's \"label\" projected into attention space.",
+    long: "K = input × W_K. Each row is what a token advertises about itself. High Q·K score = strong attention between those two positions.",
+  },
+
+  valueMatrix: {
+    term: "Value (V)",
+    short: "Token's content projected into attention space.",
+    long: "V = input × W_V. The actual information retrieved. Output = weighted sum of V rows using softmax attention weights.",
+  },
+
+  attentionScore: {
+    term: "Attention Score",
+    short: "Raw similarity between a query and a key, scaled by 1/√d_k.",
+    long: "Computed as Q·K^T / √d_k. Large dot products push softmax into regions of near-zero gradient — dividing by √d_k keeps scores in a well-behaved range. Higher score = more attention paid between those two positions.",
+  },
+
+  softmax: {
+    term: "Softmax",
+    short: "Normalizes scores into a probability distribution (each row sums to 1).",
+    long: "Converts raw attention scores into weights that sum to 1 per row. Ensures each output token attends to a valid distribution over all positions. Exponential function means small score differences get amplified.",
+  },
+
+  scaledDotProduct: {
+    term: "Scaled Dot-Product Attention",
+    short: "The core attention operation: softmax(QK^T / √d_k) × V.",
+    long: "Attention(Q,K,V) = softmax(Q·K^T / √d_k) × V. Dividing by √d_k prevents large dot products from pushing softmax into vanishing-gradient territory. Each output row is a weighted blend of all V rows.",
+  },
+
+  flashAttention: {
+    term: "Flash Attention",
+    short: "IO-efficient attention that avoids materializing the full N×N score matrix in HBM.",
+    long: "Tiles Q, K, V into blocks that fit in SRAM. Computes attention tile-by-tile, accumulating the output without ever writing the full N×N score matrix to HBM. O(N) HBM reads vs O(N²) for standard attention — the bottleneck on long sequences.",
+  },
+
+  hbm: {
+    term: "HBM (High Bandwidth Memory)",
+    short: "The main GPU memory — large but slow relative to on-chip SRAM.",
+    long: "All model weights and activations live here. Standard attention must write the full N×N score matrix to HBM, which becomes the bottleneck at long sequence lengths. HBM bandwidth (not FLOPS) is the limiting factor for attention.",
+  },
+
+  sram: {
+    term: "SRAM (On-Chip Cache)",
+    short: "Fast on-chip memory on the GPU — small but very fast.",
+    long: "Flash Attention keeps active tiles in SRAM to avoid repeated HBM round-trips. Typically 20–40 MB on modern GPUs (vs hundreds of GB for HBM). The entire goal of Flash Attention is to keep the working set in SRAM.",
+  },
+
+  residualStream: {
+    term: "Residual Stream",
+    short: "The running hidden state that accumulates information across transformer layers.",
+    long: "Each transformer layer reads from and adds back to the residual stream via the attention output projection. The attention output is projected back to d_model and added (not replacing) the input — this residual connection enables gradient flow through deep networks.",
   },
 };

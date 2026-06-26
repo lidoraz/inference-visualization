@@ -71,11 +71,9 @@ function getEntry(key: string): GlossaryEntry | undefined {
 }
 
 export function Term({ tokenKey, children }: TermProps) {
-  // `open` (click) shows the full `long` text; `hovered` shows the short blurb.
-  // Both use the same styled popover so hover and click look identical — and
-  // hover is instant (no native `title` delay).
   const [open, setOpen] = useState(false);
   const [hovered, setHovered] = useState(false);
+  const [flipUp, setFlipUp] = useState(false);
   const ref = useRef<HTMLSpanElement>(null);
   const entry = getEntry(tokenKey);
   const label = children ?? entry?.term ?? tokenKey;
@@ -97,18 +95,24 @@ export function Term({ tokenKey, children }: TermProps) {
   }, [open]);
 
   if (!entry) {
-    // Key missing — render plainly with no crash.
     return <span>{label}</span>;
   }
 
-  // Click takes priority (full text); otherwise hover shows the short blurb.
   const showPopover = open || hovered;
+
+  function handleMouseEnter() {
+    if (ref.current) {
+      const rect = ref.current.getBoundingClientRect();
+      setFlipUp(rect.bottom + 220 > window.innerHeight);
+    }
+    setHovered(true);
+  }
 
   return (
     <span
       ref={ref}
       style={{ position: "relative", display: "inline-block" }}
-      onMouseEnter={() => setHovered(true)}
+      onMouseEnter={handleMouseEnter}
       onMouseLeave={() => setHovered(false)}
     >
       <button
@@ -124,7 +128,16 @@ export function Term({ tokenKey, children }: TermProps) {
         {label}
       </button>
       {showPopover && (
-        <span role="tooltip" style={popoverStyle} onClick={(e) => e.stopPropagation()}>
+        <span
+          role="tooltip"
+          style={{
+            ...popoverStyle,
+            ...(flipUp
+              ? { top: "auto", bottom: "calc(100% + 6px)" }
+              : {}),
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
           <span
             style={{
               display: "block",

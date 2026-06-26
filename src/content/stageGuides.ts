@@ -229,11 +229,19 @@ export const stageGuides: Record<number, StageGuide> = {
     steps: [
       {
         title: "Overview",
-        note: "The KV cache dominates long-context memory. Two families shrink it: bounding how far back each token looks ([[slidingWindow|sliding window]]), and bounding how many K/V heads are stored per token ([[attentionVariant|MHA/GQA/MLA]]). Use the panels to explore each.",
+        note: "Attention is where tokens talk to each other — and where memory costs accumulate. This stage goes from fundamentals to optimizations: [[scaledDotProduct|how attention is computed]] (Q/K/V), [[flashAttention|how it's made IO-efficient]] (Flash Attention), and two families of tricks that shrink the [[kvCache|KV cache]]: [[slidingWindow|bounding lookback]] and [[attentionVariant|reducing KV heads]].",
+      },
+      {
+        glossaryKey: "scaledDotProduct",
+        note: "Step through the Q/K/V panel. Each token is projected into [[queryMatrix|Q]], [[keyMatrix|K]], and [[valueMatrix|V]]. Q × Kᵀ produces raw [[attentionScore|attention scores]], [[softmax]] turns them into weights, and those weights blend the V rows into the output.",
+      },
+      {
+        glossaryKey: "flashAttention",
+        note: "Standard attention writes the full N×N score matrix to [[hbm|HBM]] — expensive at long sequences. [[flashAttention|Flash Attention]] tiles the computation so only one block at a time lives in fast [[sram|SRAM]], cutting HBM reads from O(N²) to O(N). Toggle Standard vs Flash to see the difference.",
       },
       {
         glossaryKey: "slidingWindow",
-        note: "[[slidingWindow|Sliding-window]] attention lets each token attend only to the last W tokens, so KV memory is O(W) instead of O(length). Drag the W slider: only the last W tokens stay live in cache; older ones are evicted. This is what makes 100k–1M-token contexts affordable.",
+        note: "[[slidingWindow|Sliding-window]] attention limits each token to looking back at most W positions, so the KV cache stays O(W) instead of O(length). Drag the W slider: only the last W tokens stay live; older ones are evicted. This is what makes 100k–1M-token contexts affordable.",
       },
       {
         glossaryKey: "attentionVariant",

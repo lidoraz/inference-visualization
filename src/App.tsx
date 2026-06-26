@@ -15,7 +15,20 @@
  * config wholesale and re-inits the engine.
  */
 
-import { useReducer, useState, useEffect, useCallback, useRef } from "react";
+import { useReducer, useState, useEffect, useCallback, useRef, useSyncExternalStore } from "react";
+
+function useIsMobile(breakpoint = 768): boolean {
+  const query = `(max-width: ${breakpoint}px)`;
+  return useSyncExternalStore(
+    (cb) => {
+      const mq = window.matchMedia(query);
+      mq.addEventListener("change", cb);
+      return () => mq.removeEventListener("change", cb);
+    },
+    () => window.matchMedia(query).matches,
+    () => false
+  );
+}
 import { init, reduce as engineReduce } from "./engine/engine";
 import type { Action, Config, EngineState } from "./engine/types";
 import { Controls, type StageCapabilities } from "./components/Controls";
@@ -187,13 +200,9 @@ const appStyle: React.CSSProperties = {
   flexDirection: "column",
 };
 
-// Content is capped and centered; the full-width background lives on the app
-// container behind it. CONTENT_MAX_WIDTH keeps the content column aligned;
-// the left nav rail sits to its left within RAIL_WIDTH extra space.
 const CONTENT_MAX_WIDTH = 1200;
 const RAIL_WIDTH = 200;
 
-// Short rail labels (the full titles head the content; the rail stays compact).
 const STAGE_SHORT_TITLE: Record<number, string> = {
   1: "Lifecycle",
   2: "Model Concepts",
@@ -211,52 +220,92 @@ const headerStyle: React.CSSProperties = {
   borderBottom: `1px solid ${color.border}`,
 };
 
-const headerInnerStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: space.xxl,
-  flexWrap: "wrap",
-  width: "100%",
-  maxWidth: CONTENT_MAX_WIDTH + RAIL_WIDTH + 48,
-  margin: "0 auto",
-  padding: `${space.lg}px ${space.xxl}px`,
-  boxSizing: "border-box",
-};
+function headerInnerStyle(isMobile: boolean): React.CSSProperties {
+  return {
+    display: "flex",
+    alignItems: "center",
+    gap: space.xxl,
+    flexWrap: "wrap",
+    width: "100%",
+    maxWidth: isMobile ? "100%" : CONTENT_MAX_WIDTH + RAIL_WIDTH + 48,
+    margin: "0 auto",
+    padding: isMobile ? `${space.md}px ${space.lg}px` : `${space.lg}px ${space.xxl}px`,
+    boxSizing: "border-box",
+  };
+}
 
-const titleStyle: React.CSSProperties = {
-  margin: 0,
-  fontSize: font.size.xxl,
-  fontWeight: font.weight.bold,
-  color: color.accent,
-  letterSpacing: "0.02em",
-  whiteSpace: "nowrap",
-};
+function titleStyle(isMobile: boolean): React.CSSProperties {
+  return {
+    margin: 0,
+    fontSize: isMobile ? font.size.lg : font.size.xxl,
+    fontWeight: font.weight.bold,
+    color: color.accent,
+    letterSpacing: "0.02em",
+    whiteSpace: "nowrap",
+  };
+}
 
-// Body splits into a vertical nav rail (left) + content column (right).
-const bodyRowStyle: React.CSSProperties = {
-  flex: 1,
-  width: "100%",
-  maxWidth: CONTENT_MAX_WIDTH + RAIL_WIDTH + 48,
-  margin: "0 auto",
-  display: "flex",
-  alignItems: "flex-start",
-  boxSizing: "border-box",
-};
+function bodyRowStyle(isMobile: boolean): React.CSSProperties {
+  return {
+    flex: 1,
+    width: "100%",
+    maxWidth: isMobile ? "100%" : CONTENT_MAX_WIDTH + RAIL_WIDTH + 48,
+    margin: "0 auto",
+    display: "flex",
+    flexDirection: isMobile ? "column" : "row",
+    alignItems: "flex-start",
+    boxSizing: "border-box",
+  };
+}
 
-// ─── Left nav rail (notebook-style vertical stage tabs) ───────────────────────
-const railStyle: React.CSSProperties = {
-  width: RAIL_WIDTH,
-  flexShrink: 0,
-  display: "flex",
-  flexDirection: "column",
-  gap: space.xs,
-  padding: `${space.xl}px ${space.md}px ${space.xl}px ${space.xxl}px`,
-  boxSizing: "border-box",
-  position: "sticky",
-  top: 0,
-};
+// ─── Left nav rail (desktop) / horizontal tab strip (mobile) ─────────────────
+function railStyle(isMobile: boolean): React.CSSProperties {
+  if (isMobile) {
+    return {
+      width: "100%",
+      display: "flex",
+      flexDirection: "row",
+      overflowX: "auto",
+      gap: space.xs,
+      padding: `${space.sm}px ${space.md}px`,
+      boxSizing: "border-box",
+      borderBottom: `1px solid ${color.border}`,
+      WebkitOverflowScrolling: "touch" as React.CSSProperties["WebkitOverflowScrolling"],
+      scrollbarWidth: "none" as React.CSSProperties["scrollbarWidth"],
+    };
+  }
+  return {
+    width: RAIL_WIDTH,
+    flexShrink: 0,
+    display: "flex",
+    flexDirection: "column",
+    gap: space.xs,
+    padding: `${space.xl}px ${space.md}px ${space.xl}px ${space.xxl}px`,
+    boxSizing: "border-box",
+    position: "sticky",
+    top: 0,
+  };
+}
 
-function stageTabStyle(active: boolean): React.CSSProperties {
+function stageTabStyle(active: boolean, isMobile: boolean): React.CSSProperties {
+  if (isMobile) {
+    return {
+      display: "flex",
+      alignItems: "center",
+      gap: space.xs,
+      flexShrink: 0,
+      whiteSpace: "nowrap",
+      padding: `${space.sm}px ${space.md}px`,
+      borderRadius: radius.md,
+      border: "none",
+      borderBottom: `2px solid ${active ? color.accent : "transparent"}`,
+      background: active ? color.panelBgInset : "transparent",
+      color: active ? color.textPrimary : color.textMuted,
+      cursor: "pointer",
+      fontSize: font.size.base,
+      transition: "background 0.15s, color 0.15s",
+    };
+  }
   return {
     display: "flex",
     alignItems: "flex-start",
@@ -289,40 +338,55 @@ const stageTitleStyle: React.CSSProperties = {
   lineHeight: 1.3,
 };
 
-// Content column (everything right of the rail): guide band + main grid.
-const contentColStyle: React.CSSProperties = {
-  flex: 1,
-  minWidth: 0,
-  maxWidth: CONTENT_MAX_WIDTH,
-  display: "flex",
-  flexDirection: "column",
-};
+function contentColStyle(isMobile: boolean): React.CSSProperties {
+  return {
+    flex: 1,
+    minWidth: 0,
+    maxWidth: isMobile ? "100%" : CONTENT_MAX_WIDTH,
+    display: "flex",
+    flexDirection: "column",
+  };
+}
 
-const mainStyle: React.CSSProperties = {
-  width: "100%",
-  display: "grid",
-  gridTemplateColumns: "1fr 340px",
-  gridTemplateRows: "1fr auto",
-  gap: space.xl,
-  padding: `0 ${space.md}px ${space.xl}px`,
-  boxSizing: "border-box",
-  alignItems: "start",
-};
+function mainStyle(isMobile: boolean): React.CSSProperties {
+  if (isMobile) {
+    return {
+      width: "100%",
+      display: "flex",
+      flexDirection: "column",
+      gap: space.lg,
+      padding: `0 ${space.md}px ${space.xl}px`,
+      boxSizing: "border-box",
+    };
+  }
+  return {
+    width: "100%",
+    display: "grid",
+    gridTemplateColumns: "1fr 340px",
+    gridTemplateRows: "1fr auto",
+    gap: space.xl,
+    padding: `0 ${space.md}px ${space.xl}px`,
+    boxSizing: "border-box",
+    alignItems: "start",
+  };
+}
 
-// Explanation band sitting at the top of the content column.
 const guideBandWrapStyle: React.CSSProperties = {
   width: "100%",
   padding: `${space.lg}px ${space.md}px ${space.md}px`,
   boxSizing: "border-box",
 };
 
-const guideBandHeaderStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  gap: space.md,
-  marginBottom: space.md,
-};
+function guideBandHeaderStyle(isMobile: boolean): React.CSSProperties {
+  return {
+    display: "flex",
+    flexDirection: isMobile ? "column" : "row",
+    alignItems: isMobile ? "flex-start" : "center",
+    justifyContent: "space-between",
+    gap: space.md,
+    marginBottom: space.md,
+  };
+}
 
 const rejectionBannerStyle: React.CSSProperties = {
   padding: `10px 14px`,
@@ -335,23 +399,28 @@ const rejectionBannerStyle: React.CSSProperties = {
   lineHeight: 1.5,
 };
 
-const vizAreaStyle: React.CSSProperties = {
-  background: color.panelBg,
-  border: `1px solid ${color.border}`,
-  borderRadius: radius.lg,
-  minHeight: 320,
-  padding: space.xl,
-  gridColumn: "1",
-  gridRow: "1",
-};
+function vizAreaStyle(isMobile: boolean): React.CSSProperties {
+  return {
+    background: color.panelBg,
+    border: `1px solid ${color.border}`,
+    borderRadius: radius.lg,
+    minHeight: isMobile ? 0 : 320,
+    padding: isMobile ? space.md : space.xl,
+    gridColumn: "1",
+    gridRow: "1",
+    overflowX: "auto",
+  };
+}
 
-const sidebarStyle: React.CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: space.xl,
-  gridColumn: "2",
-  gridRow: "1 / 3",
-};
+function sidebarStyle(isMobile: boolean): React.CSSProperties {
+  return {
+    display: "flex",
+    flexDirection: "column",
+    gap: space.xl,
+    gridColumn: isMobile ? undefined : "2",
+    gridRow: isMobile ? undefined : "1 / 3",
+  };
+}
 
 const guidePrevNextStyle: React.CSSProperties = {
   display: "flex",
@@ -360,13 +429,14 @@ const guidePrevNextStyle: React.CSSProperties = {
 };
 
 const navBtnStyle: React.CSSProperties = {
-  padding: `${space.xs}px ${space.lg}px`,
+  padding: `${space.sm}px ${space.lg}px`,
   borderRadius: radius.sm + 1,
   border: `1px solid ${color.borderStrong}`,
   background: color.border,
   color: color.textPrimary,
   cursor: "pointer",
   fontSize: font.size.md,
+  minHeight: 36,
 };
 
 const navBtnDisabledStyle: React.CSSProperties = {
@@ -385,6 +455,7 @@ const controlsRowStyle: React.CSSProperties = {
 export default function App() {
   const INITIAL_STAGE = 1;
   const INITIAL_SPEED = 500;
+  const isMobile = useIsMobile();
 
   const [appState, dispatch] = useReducer(appReducer, undefined, () => ({
     engine: seededEngine(STAGE_CONFIGS[INITIAL_STAGE], STAGE_SEED_COUNT[INITIAL_STAGE]),
@@ -590,21 +661,21 @@ export default function App() {
     <div style={appStyle}>
       {/* ── Header ── */}
       <header style={headerStyle}>
-        <div style={headerInnerStyle}>
-          <h1 style={titleStyle}>vLLM Inference Visualizer</h1>
+        <div style={headerInnerStyle(isMobile)}>
+          <h1 style={titleStyle(isMobile)}>vLLM Inference Visualizer</h1>
         </div>
       </header>
 
       {/* ── Body: left nav rail + content column ── */}
-      <div style={bodyRowStyle}>
-        {/* Vertical notebook-style stage rail */}
-        <nav style={railStyle} aria-label="Stage navigation">
+      <div style={bodyRowStyle(isMobile)}>
+        {/* Vertical (desktop) or horizontal scrollable (mobile) stage nav */}
+        <nav style={railStyle(isMobile)} aria-label="Stage navigation">
           {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((stage) => {
             const active = stage === currentStage;
             return (
               <button
                 key={stage}
-                style={stageTabStyle(active)}
+                style={stageTabStyle(active, isMobile)}
                 onClick={() => handleStageSelect(stage)}
                 aria-current={active ? "page" : undefined}
               >
@@ -616,11 +687,11 @@ export default function App() {
         </nav>
 
         {/* Content column */}
-        <div style={contentColStyle}>
+        <div style={contentColStyle(isMobile)}>
 
       {/* ── Guide band (full-width, under the title, spans both panes) ── */}
       <div style={guideBandWrapStyle}>
-        <div style={guideBandHeaderStyle}>
+        <div style={guideBandHeaderStyle(isMobile)}>
           <span style={{ fontSize: font.size.lg, fontWeight: font.weight.bold, color: color.textPrimary }}>
             {stageGuides[currentStage]?.title}
           </span>
@@ -650,9 +721,9 @@ export default function App() {
       </div>
 
       {/* ── Main area ── */}
-      <main style={mainStyle}>
+      <main style={mainStyle(isMobile)}>
         {/* Visualization */}
-        <section style={vizAreaStyle} aria-label={`Stage ${currentStage} visualization`}>
+        <section style={vizAreaStyle(isMobile)} aria-label={`Stage ${currentStage} visualization`}>
           {rejected.length > 0 && (
             <div role="alert" style={rejectionBannerStyle}>
               <strong>⚠ {rejected.length} request{rejected.length !== 1 ? "s" : ""} stopped early.</strong>{" "}
@@ -663,7 +734,7 @@ export default function App() {
         </section>
 
         {/* Sidebar: Controls */}
-        <aside style={sidebarStyle}>
+        <aside style={sidebarStyle(isMobile)}>
           <Controls
             isPlaying={isPlaying}
             speed={speed}
@@ -687,8 +758,8 @@ export default function App() {
           />
         </aside>
 
-        {/* Controls row below viz on narrow screens (hidden on wide) */}
-        <div style={controlsRowStyle} />
+        {/* Spacer only needed in the desktop grid layout */}
+        {!isMobile && <div style={controlsRowStyle} />}
       </main>
         </div>
       </div>

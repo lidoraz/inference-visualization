@@ -92,13 +92,14 @@ const sectionDividerStyle: React.CSSProperties = {
 };
 
 const btnStyle: React.CSSProperties = {
-  padding: `5px ${space.lg}px`,
+  padding: `${space.sm}px ${space.lg}px`,
   borderRadius: radius.sm + 1,
   border: `1px solid ${color.borderStrong}`,
   background: color.border,
   color: color.textPrimary,
   cursor: "pointer",
   fontSize: font.size.base,
+  minHeight: 36,
 };
 
 const btnPrimaryStyle: React.CSSProperties = {
@@ -285,7 +286,7 @@ export function Controls({
                       onKeyDown={handleAddKeyDown}
                       placeholder="Type a prompt or use 🎲…"
                       aria-label="Request prompt text"
-                      style={{ ...inputStyle, flex: 1, minWidth: 120 }}
+                      style={{ ...inputStyle, flex: 1, minWidth: 0 }}
                     />
                     <button
                       style={btnStyle}
@@ -307,7 +308,7 @@ export function Controls({
                       max={512}
                       onChange={(e) => setMaxDecode(Number(e.target.value))}
                       aria-label="Maximum decode tokens"
-                      style={{ ...inputStyle, width: 64 }}
+                      style={{ ...inputStyle, width: 72, minWidth: 0 }}
                     />
                     <button
                       style={btnStyle}
@@ -408,7 +409,7 @@ export function Controls({
                 onEngineSetupChange({ kvCacheBlocks: Number(e.target.value) })
               }
               aria-label="KV cache block count"
-              style={{ ...(engineSetupLocked ? inputDisabledStyle : inputStyle), width: 72 }}
+              style={{ ...(engineSetupLocked ? inputDisabledStyle : inputStyle), width: 72, minWidth: 0 }}
             />
           </label>
           <label style={labelStyle}>
@@ -425,7 +426,7 @@ export function Controls({
                 onEngineSetupChange({ blockSize: Number(e.target.value) })
               }
               aria-label="Block size (tokens per block)"
-              style={{ ...(engineSetupLocked ? inputDisabledStyle : inputStyle), width: 72 }}
+              style={{ ...(engineSetupLocked ? inputDisabledStyle : inputStyle), width: 72, minWidth: 0 }}
             />
           </label>
         </div>
@@ -456,7 +457,7 @@ export function Controls({
               }
               aria-label="Maximum batch size"
               title="vLLM's max_num_seqs: how many requests run concurrently. Real servers use 256+; 1 serializes requests and wastes the GPU."
-              style={{ ...inputStyle, width: 72 }}
+              style={{ ...inputStyle, width: 72, minWidth: 0 }}
             />
           </label>
           <label style={labelStyle}>
@@ -473,7 +474,7 @@ export function Controls({
               }
               aria-label="Token budget per step"
               title="vLLM's max_num_batched_tokens: total tokens processed in one step. Caps how much prefill work one step admits."
-              style={{ ...inputStyle, width: 72 }}
+              style={{ ...inputStyle, width: 72, minWidth: 0 }}
             />
           </label>
         </div>

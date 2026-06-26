@@ -354,15 +354,12 @@ function ArchDiagram({
 }) {
   // Only show the last confirmed token after at least one pass has run
   const lastConfirmedToken = passes > 0 ? (confirmed[confirmed.length - 1] ?? "…") : "…";
+  // The token that fed INTO the LLM this pass is the one confirmed the step before
+  const llmInputToken = confirmed.length >= 2 ? confirmed[confirmed.length - 2] : null;
   const nextTokens = Array.from({ length: 3 }, (_, i) => staging[i]?.text ?? "…");
   const steps = draftSizeForMode(mode);
   const ac = color.waiting;
 
-  const caption: Record<Mode, string> = {
-    standard: "One token per forward pass — no speculation.",
-    mtp1: "MTP module shares embed + LM head with the backbone. Drafts 1 extra token per pass using h + emb(t₀).",
-    mtp3: "One MTP module loops ×3, feeding h′ back each step. Verify + next h happen in a single main-model pass.",
-  };
 
   const containerStyle: React.CSSProperties = {
     ...panel,
@@ -410,11 +407,17 @@ function ArchDiagram({
   return (
     <div style={containerStyle}>
       {/* Compact LLM stack */}
-      <span style={{ fontFamily: font.mono, fontSize: font.size.xs, color: color.textFaint }}>input tokens</span>
+      <span style={{ fontFamily: font.mono, fontSize: font.size.xs, color: color.info }}>
+        <Term tokenKey="embeddingLookup">
+          emb({llmInputToken != null ? `"${llmInputToken}"` : "t"})
+        </Term>
+      </span>
       <span style={arrowSm}>↓</span>
       <div style={llmBoxStyle}>LLM (N layers)</div>
       <span style={arrowSm}>↓</span>
-      <span style={hChipStyle}>h (hidden state)</span>
+      <span style={hChipStyle}>
+        <Term tokenKey="hiddenState">h</Term>
+      </span>
 
       {/* Two-column branch from h */}
       <div style={{ display: "flex", flexDirection: "row", alignItems: "flex-start", justifyContent: "center", gap: space.xxl, width: "100%" }}>
@@ -423,8 +426,10 @@ function ArchDiagram({
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: space.sm }}>
           <span style={arrowSm}>↓</span>
           <div style={headBox(color.decode, isAnimating, "LM Head")}>
-            <div>LM Head</div>
-            <div style={{ fontSize: font.size.xs, color: isAnimating ? color.decode : color.textFaint }}>softmax</div>
+            <div><Term tokenKey="lmHeadTranspose">LM Head</Term></div>
+            <div style={{ fontSize: font.size.xs, color: isAnimating ? color.decode : color.textFaint }}>
+              <Term tokenKey="lmHeadTranspose">embᵀ</Term>
+            </div>
           </div>
           <span style={arrowSm}>↓</span>
           <TokenChipArch label={lastConfirmedToken} accent={color.decode} />
@@ -436,12 +441,16 @@ function ArchDiagram({
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: space.sm }}>
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
               <span style={arrowSm}>↓</span>
-              <span style={{ fontSize: font.size.xs, color: color.info, fontFamily: font.mono }}>+ emb(t)</span>
+              <span style={{ fontSize: font.size.xs, color: color.info, fontFamily: font.mono }}>
+                <Term tokenKey="embeddingLookup">
+                  emb({lastConfirmedToken === "…" ? "?" : `"${lastConfirmedToken}"`})
+                </Term>
+              </span>
             </div>
             <div style={{ position: "relative" as const }}>
               <div style={{ ...headBox(ac, isAnimating, "MTP"), minWidth: 120 }}>
-                <div>MTP Module</div>
-                <div style={{ fontSize: font.size.xs, color: isAnimating ? ac : color.textFaint }}>shares embed + LM head</div>
+                <div><Term tokenKey="mtp">MTP Module</Term></div>
+                <div style={{ fontSize: font.size.xs, color: isAnimating ? ac : color.textFaint }}>own transformer block</div>
               </div>
               {steps > 1 && (
                 <span style={{
@@ -470,10 +479,6 @@ function ArchDiagram({
         )}
       </div>
 
-      {/* Caption */}
-      <span style={{ fontSize: font.size.xs, color: color.textFaint, textAlign: "center" as const, maxWidth: 400, lineHeight: 1.5, marginTop: space.xs }}>
-        {caption[mode]}
-      </span>
     </div>
   );
 }
@@ -749,7 +754,7 @@ export function StageSpeculative(_props: StageProps) {
                     color: color.textSecondary,
                     marginLeft: space.sm,
                   }}>
-                    → E[tokens/pass] ≈ {expected.toFixed(2)}
+                    expected ≈ {expected.toFixed(2)}/pass
                   </span>
                 );
               })()}
@@ -780,7 +785,7 @@ export function StageSpeculative(_props: StageProps) {
             <span style={{ fontSize: font.size.xxl, fontWeight: font.weight.bold, fontFamily: font.mono, color: color.decode }}>
               {tokensPerPass}{passes > 0 ? "×" : ""}
             </span>
-            <span style={statLabelStyle}>Tokens / Pass</span>
+            <span style={statLabelStyle}>Actual tokens/pass</span>
           </div>
           {mode !== "standard" && (
             <div style={statChipStyle}>
@@ -793,7 +798,7 @@ export function StageSpeculative(_props: StageProps) {
 
       {/* Zone B — Architecture Diagram (compact) */}
       <div>
-        <h3 style={sectionHeadingStyle}><Term tokenKey="mtp">Model Architecture</Term></h3>
+        <h3 style={sectionHeadingStyle}><Term tokenKey="mtp">Decode Architecture</Term></h3>
         <ArchDiagram mode={mode} isAnimating={isAnimating} passes={passes}
           confirmed={confirmed} staging={staging} targetPhrase={targetPhrase} />
       </div>

@@ -358,4 +358,28 @@ export const glossary: Record<string, GlossaryEntry> = {
     short: "Compresses K/V into one small latent vector per token — the smallest cache.",
     long: "Multi-head Latent Attention, introduced by DeepSeek, compresses the key/value tensors into a single low-rank latent vector per token, stored once and decompressed on the fly during attention. This gives the smallest KV cache of the three variants. The catch: the latent vector can't be cleanly sharded across heads, so under tensor parallelism it ends up replicated on every rank — which is exactly why MLA models are served with data-parallel attention (DP-attention) instead. See the SGLang stage.",
   },
+
+  hiddenState: {
+    term: "Hidden State (h)",
+    short: "The residual-stream vector output by the last transformer layer — the model's full internal representation of the sequence so far.",
+    long: "After the final transformer layer, the residual stream holds a vector h of size d_model (e.g. 7168 for DeepSeek-V3). This single vector encodes everything the model knows about the context. Both the LM head and the MTP module read from this same h — they are siblings, not a chain. The LM head projects h up to vocab size to produce token logits. The MTP module combines h with an embedding of the last predicted token to draft the next position.",
+  },
+
+  embeddingLookup: {
+    term: "Token Embedding — emb(t)",
+    short: "A d_model-wide vector looked up from the embedding table for a single token id.",
+    long: "After the LM head picks the next token (argmax or sample), the logits are discarded and the winning token id is looked up in the embedding table — a matrix of shape vocab_size × d_model. The result is one row of that matrix: a dense vector of size d_model. This is what gets fed into the MTP module alongside h. The logits never travel forward; only the single chosen id matters, and it re-expands to d_model through this lookup. This is also why the embedding table can be shared between the backbone's input layer and the MTP module: both are doing the same token-id → d_model operation.",
+  },
+
+  lmHeadTranspose: {
+    term: "LM Head — embᵀ(h)",
+    short: "Projects h to vocab-size logits using the embedding matrix transposed.",
+    long: "The LM head is a linear projection from d_model to vocab_size that turns the hidden state h into a logit for every token. In most modern LLMs (including DeepSeek-V3) this projection reuses the embedding matrix transposed — so emb maps token ids to d_model vectors, and emb⁻¹ (the LM head) maps d_model vectors back to vocab scores. This weight-tying halves the parameter count at the vocabulary boundary and is why the MTP module can 'share the LM head with the backbone': there is only one matrix, used in both directions.",
+  },
+
+  mtp: {
+    term: "MTP Module",
+    short: "One extra transformer block that drafts the next token using h + emb(last token).",
+    long: "The MTP (Multi-Token Prediction) module is a single transformer block — separate from the backbone's N layers — that takes two inputs: the backbone's final hidden state h, and the embedding of the token the backbone just predicted. These are concatenated, projected down to d_model by a learned matrix, and fed through the transformer block to produce a new hidden state h′. That h′ is then passed through the shared LM head to get draft logits. For k=3, this one module is called recursively 3 times, each time feeding the previous h′ and the embedding of the previous draft. The embedding table and LM head are shared with the backbone; only the transformer block and the projection matrix are unique to the MTP module.",
+  },
 };

@@ -442,4 +442,10 @@ export const glossary: Record<string, GlossaryEntry> = {
     short: "The running hidden state that accumulates information across transformer layers.",
     long: "Each transformer layer reads from and adds back to the residual stream via the attention output projection. The attention output is projected back to d_model and added (not replacing) the input — this residual connection enables gradient flow through deep networks.",
   },
+
+  sequenceProgress: {
+    term: "Sequence Progress (Highway)",
+    short: "Each lane = one active request; lane length = total sequence; fill = tokens processed.",
+    long: "The Sequence Progress panel (nicknamed the 'highway') shows every currently-running request as a horizontal lane. Lane width represents the full sequence length (prompt + max decode tokens), so longer sequences are literally wider roads. The fill is split into two segments: blue for prompt tokens (processed in one prefill jump) and green for decoded tokens (growing by one per tick). Subtle tick marks divide the bar at every KV-cache block boundary, so you can read off block occupancy directly from the visual. The number of lanes equals the active batch size — the maximum batch size cap determines how many lanes the GPU is running in parallel. Together, batch size × sequence length sets the KV cache pressure the scheduler is fighting to manage.",
+  },
 };

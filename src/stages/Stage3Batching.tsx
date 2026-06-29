@@ -12,6 +12,7 @@ import type { StageProps } from "./types";
 import type { Request, Block } from "../engine/types";
 import { QueueLanes } from "../components/QueueLanes";
 import { BlockGrid } from "../components/BlockGrid";
+import { HighwayPanel } from "../components/HighwayPanel";
 import { Term } from "../components/Term";
 import { latencyMetrics } from "../content/metrics";
 import { color, space, radius, font, sectionLabel, notePanel } from "../theme";
@@ -291,6 +292,14 @@ export function Stage3Batching({
           />
         </div>
       </section>
+
+      {/* ── Sequence Progress (highway) ── */}
+      {hasAnyRequests && (
+        <section style={sectionStyle} aria-label="Sequence progress visualization">
+          <h3 style={sectionTitleStyle}>Sequence Progress</h3>
+          <HighwayPanel engine={engine} config={config} />
+        </section>
+      )}
 
       {/* ── Queue Lanes (centerpiece) ── */}
       <section style={sectionStyle} aria-label="Request queues">

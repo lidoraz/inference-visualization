@@ -15,7 +15,7 @@ import { BlockGrid } from "../components/BlockGrid";
 import { HighwayPanel } from "../components/HighwayPanel";
 import { Term } from "../components/Term";
 import { latencyMetrics } from "../content/metrics";
-import { color, space, radius, font, sectionLabel, notePanel } from "../theme";
+import { color, space, radius, font, sectionLabel } from "../theme";
 
 // ─── Derived metrics helpers ─────────────────────────────────────────────────
 
@@ -190,11 +190,11 @@ export function Stage3Batching({
 
   return (
     <div style={outerStyle} aria-label="Continuous Batching visualization">
-      {/* ── Live metrics strip ── */}
+
+      {/* ── 1. Unified metrics board ── */}
       <section style={sectionStyle} aria-label="Live metrics">
         <h3 style={sectionTitleStyle}>Live Metrics — Tick {tick}</h3>
         <div style={metricsRowStyle}>
-          <MetricPill value={tick} label="Tick" accent={color.borderStrong} />
           <MetricPill
             value={activeCount}
             label="Active"
@@ -221,12 +221,6 @@ export function Stage3Batching({
           />
           <MetricPill value={counts.finished} label="Finished" accent={color.textFaint} />
           <MetricPill
-            value={`${kv.used}/${kv.total}`}
-            label={<Term tokenKey="kvCache">KV Blocks</Term>}
-            ariaLabel={`KV Blocks: ${kv.used}/${kv.total}`}
-            accent={kvPct > 0.85 ? color.danger : kvPct > 0.6 ? color.warn : color.info}
-          />
-          <MetricPill
             value={config.maxBatchSize}
             label={<Term tokenKey="maxBatchSize">Max Batch</Term>}
             ariaLabel={`Max Batch: ${config.maxBatchSize}`}
@@ -238,40 +232,6 @@ export function Stage3Batching({
             ariaLabel={`Tok Budget: ${config.tokenBudget}`}
             accent={color.info}
           />
-        </div>
-        {/* KV usage bar */}
-        <div
-          style={{ display: "flex", gap: space.md, alignItems: "center" }}
-          aria-label={`KV cache usage: ${kv.used} of ${kv.total} blocks (${Math.round(kvPct * 100)}%)`}
-        >
-          <span style={{ fontSize: font.size.sm, color: color.textMuted, whiteSpace: "nowrap" }}>
-            KV pressure
-          </span>
-          <div style={kvBarOuterStyle}>
-            <div style={kvBarInnerStyle(kvPct)} />
-          </div>
-          <span
-            style={{
-              fontSize: font.size.sm,
-              fontFamily: font.mono,
-              color: kvPct > 0.85 ? color.danger : color.textMuted,
-              whiteSpace: "nowrap",
-            }}
-          >
-            {Math.round(kvPct * 100)}%
-          </span>
-        </div>
-      </section>
-
-      {/* ── Latency & throughput metrics ── */}
-      <section style={sectionStyle} aria-label="Latency and throughput metrics">
-        <h3
-          style={sectionTitleStyle}
-          title="All values in ticks (the demo's time unit). TTFT = ticks from arrival to first token; ITL = ticks per token during decode; Throughput = tokens/tick across the batch."
-        >
-          Latency &amp; Throughput
-        </h3>
-        <div style={metricsRowStyle}>
           <MetricPill
             value={metrics.avgTtft !== null ? `${metrics.avgTtft.toFixed(1)}` : "—"}
             label={<Term tokenKey="ttft">TTFT</Term>}
@@ -293,43 +253,35 @@ export function Stage3Batching({
         </div>
       </section>
 
-      {/* ── Sequence Progress (highway) ── */}
-      {hasAnyRequests && (
-        <section style={sectionStyle} aria-label="Sequence progress visualization">
-          <h3 style={sectionTitleStyle}>Sequence Progress</h3>
-          <HighwayPanel engine={engine} config={config} />
-        </section>
-      )}
-
-      {/* ── Queue Lanes (centerpiece) ── */}
+      {/* ── 2. Request queues ── */}
       <section style={sectionStyle} aria-label="Request queues">
-        <h3 style={sectionTitleStyle}>Request Queues</h3>
+        <h3 style={sectionTitleStyle}>
+          Request Queues
+          {/* Compact wait-reason hint — only when there are blocked requests */}
+          {waitReasons.length > 0 && (
+            <span
+              role="note"
+              title={waitReasons.join(" · ")}
+              style={{
+                marginLeft: space.md,
+                fontSize: font.size.xs,
+                fontWeight: font.weight.normal,
+                color: color.waiting,
+                cursor: "help",
+                letterSpacing: 0,
+                textTransform: "none",
+              }}
+            >
+              ⓘ {waitReasons.length === 1 ? waitReasons[0] : `${waitReasons.length} requests blocked`}
+            </span>
+          )}
+        </h3>
         {hasAnyRequests ? (
-          <>
-            {waitReasons.length > 0 && (
-              <div
-                role="note"
-                aria-label="Why requests are waiting"
-                style={{
-                  ...notePanel,
-                  color: color.waiting,
-                  marginBottom: 10,
-                }}
-              >
-                <strong>Why some requests aren't running this step:</strong>
-                <ul style={{ margin: "4px 0 0", paddingLeft: 18 }}>
-                  {waitReasons.map((reason) => (
-                    <li key={reason}>{reason}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            <QueueLanes
-              requests={requests}
-              selectedRequestId={selectedRequestId}
-              onSelectRequest={onSelectRequest}
-            />
-          </>
+          <QueueLanes
+            requests={requests}
+            selectedRequestId={selectedRequestId}
+            onSelectRequest={onSelectRequest}
+          />
         ) : (
           <p style={emptyStateStyle}>
             Add several requests to watch the scheduler batch them. Set a small KV Cache Blocks
@@ -338,11 +290,43 @@ export function Stage3Batching({
         )}
       </section>
 
-      {/* ── Block Grid (KV cache) ── */}
-      <section style={sectionStyle} aria-label="KV cache block grid">
-        <h3 style={sectionTitleStyle}>Shared KV Cache</h3>
+      {/* ── 3. Sequence progress (highway) ── */}
+      {hasAnyRequests && (
+        <section style={sectionStyle} aria-label="Sequence progress visualization">
+          <h3 style={sectionTitleStyle}>Sequence Progress</h3>
+          <HighwayPanel engine={engine} config={config} />
+        </section>
+      )}
+
+      {/* ── 4. Shared KV Cache — pressure bar + block grid ── */}
+      <section style={sectionStyle} aria-label="KV cache">
+        <h3 style={sectionTitleStyle}>
+          <Term tokenKey="kvCache">Shared KV Cache</Term>
+        </h3>
+        <div
+          style={{ display: "flex", gap: space.md, alignItems: "center" }}
+          aria-label={`KV cache usage: ${kv.used} of ${kv.total} blocks (${Math.round(kvPct * 100)}%)`}
+        >
+          <span style={{ fontSize: font.size.sm, color: color.textMuted, whiteSpace: "nowrap" }}>
+            Pressure
+          </span>
+          <div style={kvBarOuterStyle}>
+            <div style={kvBarInnerStyle(kvPct)} />
+          </div>
+          <span
+            style={{
+              fontSize: font.size.sm,
+              fontFamily: font.mono,
+              color: kvPct > 0.85 ? color.danger : color.textMuted,
+              whiteSpace: "nowrap",
+            }}
+          >
+            {kv.used}/{kv.total} ({Math.round(kvPct * 100)}%)
+          </span>
+        </div>
         <BlockGrid blocks={blocks} requests={runningRequests} />
       </section>
+
     </div>
   );
 }

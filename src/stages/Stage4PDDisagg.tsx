@@ -16,6 +16,7 @@ import { useState } from "react";
 import type { StageProps } from "./types";
 import type { Request, Block } from "../engine/types";
 import { BlockGrid } from "../components/BlockGrid";
+import { HighwayPanel } from "../components/HighwayPanel";
 import { Term } from "../components/Term";
 import { color, space, radius, font, sectionLabel, panel, statusTint } from "../theme";
 
@@ -178,7 +179,7 @@ function RequestChip({ request }: { request: Request }) {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function Stage4PDDisagg({ engine }: StageProps) {
+export function Stage4PDDisagg({ engine, config }: StageProps) {
   const { requests, blocks, tick } = engine;
 
   // Partition requests by worker
@@ -319,6 +320,16 @@ export function Stage4PDDisagg({ engine }: StageProps) {
           </div>
         </div>
       </div>
+
+      {/* ── Sequence Progress (highway) ── */}
+      {hasAnyRequests && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <h3 style={{ ...sectionLabel, borderBottom: `1px solid ${color.border}`, paddingBottom: space.sm }}>
+            Sequence Progress
+          </h3>
+          <HighwayPanel engine={engine} config={config} />
+        </div>
+      )}
 
       {/* Empty state */}
       {!hasAnyRequests && (

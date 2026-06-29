@@ -358,9 +358,22 @@ export function tick(state: EngineState, config: Config): EngineState {
   }
 
   // Step 4 – increment tick.
+  // Prune terminal requests: keep all live requests plus the 10 most recent
+  // finished/cancelled ones (by id). Prevents unbounded list growth during
+  // long runs without losing any in-flight state.
+  const MAX_TERMINAL = 10;
+  const live = updatedRequests.filter(
+    (r) => r.status !== "finished" && r.status !== "cancelled"
+  );
+  const terminal = updatedRequests
+    .filter((r) => r.status === "finished" || r.status === "cancelled")
+    .sort((a, b) => b.id - a.id)
+    .slice(0, MAX_TERMINAL);
+  const prunedRequests = [...live, ...terminal].sort((a, b) => a.id - b.id);
+
   return {
     ...scheduled,
-    requests: updatedRequests,
+    requests: prunedRequests,
     blocks: currentBlocks,
     tick: scheduled.tick + 1,
   };
